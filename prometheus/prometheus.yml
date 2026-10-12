@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 1m
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  # Las reglas necesitan que TODAS las series lleven los labels "service" y "env".
+  # Ejemplo estatico (laboratorio): ajusta targets y labels a tus servicios.
+  - job_name: apps
+    static_configs:
+      - targets: ['checkout:8080']
+        labels: {service: checkout, env: prod}
+      - targets: ['payments-api:8080']
+        labels: {service: payments-api, env: prod}
+
+  # Ejemplo para Kubernetes (descomenta y adapta): service desde el label "app" del pod,
+  # env desde el namespace.
+  # - job_name: k8s-pods
+  #   kubernetes_sd_configs: [{role: pod}]
+  #   relabel_configs:
+  #     - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+  #       action: keep
+  #       regex: "true"
+  #     - source_labels: [__meta_kubernetes_pod_label_app]
+  #       target_label: service
+  #     - source_labels: [__meta_kubernetes_namespace]
+  #       target_label: env
+
+  # Marca de despliegue publicada por CI/CD (ver README, seccion "Marca de deploy").
+  # - job_name: pushgateway
+  #   honor_labels: true
+  #   static_configs: [{targets: ['pushgateway:9091']}]

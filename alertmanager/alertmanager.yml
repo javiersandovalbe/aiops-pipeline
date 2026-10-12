@@ -1,0 +1,48 @@
+# alertmanager/alertmanager.yml
+route:
+  receiver: slack-aiops
+  group_by: [env, service]
+  group_wait: 45s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: [severity="page"]
+      receiver: pagerduty-oncall
+      group_wait: 30s
+      repeat_interval: 1h
+    - matchers: [aiops_stage="anomaly"]
+      receiver: slack-aiops
+      mute_time_intervals: [mantenimiento-semanal]
+
+inhibit_rules:
+  # Causa raiz conocida: ServiceDown silencia las anomalias del mismo servicio
+  - source_matchers: [alertname="ServiceDown"]
+    target_matchers: [alertname=~"LatencyAnomaly|PostDeployRegression"]
+    equal: [service, env]
+  # Dependencia caida (label 'dependency' inyectado desde la CMDB)
+  - source_matchers: [root_cause="true", severity="page", dependency=~".+"]
+    target_matchers: [aiops_stage="anomaly", dependency=~".+"]
+    equal: [dependency, env]
+
+time_intervals:
+  - name: mantenimiento-semanal
+    time_intervals:
+      - weekdays: ['sunday']
+        times: [{start_time: '02:00', end_time: '04:00'}]
+        location: 'America/Bogota'
+
+receivers:
+  - name: slack-aiops
+    slack_configs:
+      - api_url_file: /etc/alertmanager/secrets/slack_url
+        channel: '#sre-alerts'
+        send_resolved: true
+        title: '[{{ .Status | toUpper }}] {{ .GroupLabels.service }} ({{ .GroupLabels.env }}): {{ .Alerts.Firing | len }} alertas'
+        text: |-
+          {{ range .Alerts }}- {{ .Annotations.summary }}
+            runbook: {{ .Annotations.runbook_url }}
+          {{ end }}
+  - name: pagerduty-oncall
+    pagerduty_configs:
+      - routing_key_file: /etc/alertmanager/secrets/pd_key
+        severity: '{{ if eq .CommonLabels.severity "page" }}critical{{ else }}warning{{ end }}'

@@ -1,0 +1,57 @@
+# Ejecutar: promtool test rules prometheus/tests/aiops_latency_test.yml
+rule_files:
+  - ../rules/aiops_latency.yml
+evaluation_interval: 1m
+
+tests:
+  # Caso 1: 4 semanas estables en 0,2 s y un pico a 0,6 s entre los minutos 40350 y 40390.
+  - interval: 1m
+    input_series:
+      - series: 'svc:latency_p95:5m{service="checkout",env="prod"}'
+        values: '0.2x40349 0.6x40 0.2x30'
+      - series: 'http_server_duration_seconds_count{service="checkout",env="prod"}'
+        values: '0+120x40421'
+    promql_expr_test:
+      - expr: svc:latency_p95:seasonal_weeks
+        eval_time: 40335m
+        exp_samples:
+          - labels: 'svc:latency_p95:seasonal_weeks{service="checkout",env="prod"}'
+            value: 4
+      - expr: svc:latency_p95:zscore
+        eval_time: 40335m
+        exp_samples:
+          - labels: 'svc:latency_p95:zscore{service="checkout",env="prod"}'
+            value: 0
+      - expr: svc:latency_p95:zscore
+        eval_time: 40375m
+        exp_samples:
+          - labels: 'svc:latency_p95:zscore{service="checkout",env="prod"}'
+            value: 8
+      - expr: ALERTS{alertname="LatencyAnomaly", alertstate="firing"}
+        eval_time: 40375m
+        exp_samples:
+          - labels: 'ALERTS{alertname="LatencyAnomaly", alertstate="firing", aiops_stage="anomaly", env="prod", service="checkout", severity="warning"}'
+            value: 1
+    alert_rule_test:
+      - eval_time: 40335m
+        alertname: LatencyAnomaly
+        exp_alerts: []
+
+  # Caso 2: mismo pico, pero con ventana de deploy activa: no hay LatencyAnomaly, si PostDeployRegression.
+  - interval: 1m
+    input_series:
+      - series: 'svc:latency_p95:5m{service="checkout",env="prod"}'
+        values: '0.2x40349 0.6x40 0.2x30'
+      - series: 'http_server_duration_seconds_count{service="checkout",env="prod"}'
+        values: '0+120x40421'
+      - series: 'deploy_window_active{service="checkout",env="prod"}'
+        values: '0x40339 1x82'
+    promql_expr_test:
+      - expr: ALERTS{alertname="LatencyAnomaly", alertstate="firing"}
+        eval_time: 40375m
+        exp_samples: []
+      - expr: ALERTS{alertname="PostDeployRegression", alertstate="firing"}
+        eval_time: 40375m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostDeployRegression", alertstate="firing", aiops_stage="anomaly", env="prod", service="checkout", severity="page", team="release"}'
+            value: 1
